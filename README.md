@@ -1,1 +1,1 @@
-# location-dashboard
+# Vendor-dashboard
