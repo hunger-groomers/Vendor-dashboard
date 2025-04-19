@@ -105,9 +105,9 @@
     </div>
   </div>
   <script>
-    // UPDATE THESE URLs with your deployed URLs
-    const webAppUrl = 'https://script.google.com/macros/s/AKfycbwuxIRkaFC3yAxBgCASolnmBQTCqw4yQLSs2VDS7TTAVVd3H3bw2rGPVUIfrRaC8B-3/exec';
-    const dashboardUrl = 'https://hunger-groomer.github.io/vendor-dashboard/';
+    // Match the URLs with the Google Apps Script configuration
+    const webAppUrl = "https://script.google.com/macros/s/AKfycbzeD0UQsG0Sf0ZcwkH06wZd6CrLFjYUdH-Wwv5Xww_pq68rmNBUvsVympagB17gitGy/exec";
+    const dashboardUrl = "https://hunger-groomer.github.io/vendor-dashboard/";
     
     const params = new URLSearchParams(window.location.search);
     const btn = document.getElementById('redirectBtn');
@@ -193,11 +193,14 @@
     // Attach click handler to button
     btn.addEventListener('click', redirect);
     
-    // Check URL parameters on page load
+    // Auto-redirect if parameters are present
     window.onload = function() {
       // Show error if no valid parameters
       if (!row && !id) {
         errorDiv.style.display = 'block';
+      } else {
+        // Auto-redirect after a short delay (gives users time to see the page)
+        setTimeout(redirect, 1500);
       }
       
       // Enable debug mode with URL parameter
