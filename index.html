@@ -90,6 +90,24 @@
       color: rgba(255,255,255,0.5);
       display: none;
     }
+    .retry-btn {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 4px;
+      margin-top: 12px;
+      display: none;
+      cursor: pointer;
+    }
+    .retry-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .status {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.8);
+      margin-top: 1rem;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -99,6 +117,8 @@
     <p>Welcome to your vendor dashboard. You'll be able to update your location, view prices, and manage inventory.</p>
     <a id="redirectBtn" class="btn">Access Dashboard</a>
     <div class="loader" id="loader"></div>
+    <div id="status" class="status"></div>
+    <button id="retryBtn" class="retry-btn">Retry</button>
     <div id="debug"></div>
     <div class="privacy-notice">
       Your dashboard provides secure access to your vendor information and current market prices.
@@ -106,46 +126,93 @@
   </div>
   <script>
     // Match the URLs with the Google Apps Script configuration
-    const webAppUrl = "https://script.google.com/macros/s/AKfycbyas82Vu0KUfsBAigPnGg4pIqeDFDuvF5C5Tj1_NAkQ1SFWQ_vFqV6v-pNnxhvVgyEX/exec";
+    const webAppUrl = "https://script.google.com/macros/s/AKfycbxiaPaylo3C4kEWuxnNUbgeI-yfArXWXvk7W_ye77hXsR8cv5tfbM9Bpsv9_2ESANZa/exec";
     const dashboardUrl = "https://hunger-groomer.github.io/vendor-dashboard/";
     
     const params = new URLSearchParams(window.location.search);
     const btn = document.getElementById('redirectBtn');
+    const retryBtn = document.getElementById('retryBtn');
     const loader = document.getElementById('loader');
     const errorDiv = document.getElementById('error');
     const debugDiv = document.getElementById('debug');
+    const statusDiv = document.getElementById('status');
     
-    // Extract parameters from URL
-    const row = params.get('row');
+    // Extract parameters from URL - prioritize id over row
     const id = params.get('id');
+    const row = params.get('row');
     
-    // For direct testing functionality
+    // For debugging functionality
     function showDebug(message) {
-      debugDiv.style.display = 'block';
-      debugDiv.textContent = message;
-    }
-    
-    // Record scan first
-    async function recordScan() {
-      try {
-        // Determine which parameter to use
-        const param = id ? `id=${encodeURIComponent(id)}` : `row=${encodeURIComponent(row)}`;
-        
-        // Record the scan
-        const response = await fetch(`${webAppUrl}?action=recordScan&${param}`);
-        const data = await response.json();
-        
-        if (!data.success) {
-          console.warn('Failed to record scan:', data.message);
-        }
-      } catch (err) {
-        console.error('Error recording scan:', err);
+      if (params.get('debug') === 'true') {
+        debugDiv.style.display = 'block';
+        debugDiv.textContent = message;
       }
     }
     
-    function redirect() {
+    function showStatus(message, isError = false) {
+      statusDiv.style.display = 'block';
+      statusDiv.textContent = message;
+      
+      if (isError) {
+        statusDiv.style.color = '#ffcccc';
+        retryBtn.style.display = 'inline-block';
+      } else {
+        statusDiv.style.color = 'rgba(255, 255, 255, 0.8)';
+      }
+    }
+    
+    // Record scan with improved error handling
+    async function recordScan() {
+      try {
+        // Determine which parameter to use - prioritize id over row
+        let param;
+        if (id && id.trim() !== "") {
+          param = `id=${encodeURIComponent(id)}`;
+        } else if (row && !isNaN(parseInt(row, 10))) {
+          param = `row=${encodeURIComponent(row)}`;
+        } else {
+          throw new Error("No valid identifier found");
+        }
+        
+        showStatus('Recording your visit...');
+        showDebug(`API call: ${webAppUrl}?action=recordScan&${param}`);
+        
+        // Record the scan with timeout handling
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        
+        const response = await fetch(`${webAppUrl}?action=recordScan&${param}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`Server responded with status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+          throw new Error(data.message || 'Unknown error');
+        }
+        
+        showStatus('Visit recorded successfully');
+        return true;
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          showStatus('Connection timed out. Please try again.', true);
+        } else {
+          showStatus(`Error: ${err.message}`, true);
+        }
+        showDebug(`Scan error: ${err.message}`);
+        return false;
+      }
+    }
+    
+    // Handle the redirect process
+    async function redirect() {
       // Check if we have any valid parameter
-      if (!row && !id) {
+      if ((!id || id.trim() === "") && (!row || isNaN(parseInt(row, 10)))) {
         errorDiv.style.display = 'block';
         return;
       }
@@ -153,59 +220,63 @@
       // Show loading animation
       loader.style.display = 'block';
       btn.style.display = 'none';
+      retryBtn.style.display = 'none';
       
-      // Record scan first
-      recordScan().then(() => {
-        // Select the appropriate parameter for the redirect
+      try {
+        // Record scan first
+        const scanRecorded = await recordScan();
+        
+        // Continue with redirect even if scan recording fails
+        // Select the appropriate parameter for the redirect (prioritize id)
         let targetUrl;
-        if (id) {
+        if (id && id.trim() !== "") {
           targetUrl = `${dashboardUrl}?id=${encodeURIComponent(id)}`;
-        } else if (row) {
+        } else if (row && !isNaN(parseInt(row, 10))) {
           targetUrl = `${dashboardUrl}?row=${encodeURIComponent(row)}`;
         } else {
-          errorDiv.style.display = 'block';
-          return;
+          throw new Error("No valid parameters for redirect");
         }
         
-        // For debugging
         showDebug(`Redirecting to: ${targetUrl}`);
+        showStatus('Redirecting to your dashboard...');
         
         // Perform redirect after a short delay
         setTimeout(() => {
           try {
-            // Open in same window/tab
             window.location.href = targetUrl;
-            
-            // Alternative method if the above doesn't work
-            setTimeout(() => {
-              window.location.replace(targetUrl);
-            }, 500);
           } catch (e) {
-            errorDiv.style.display = 'block';
-            errorDiv.textContent = "Redirect failed: " + e.message;
-            btn.style.display = 'inline-block';
-            loader.style.display = 'none';
+            throw new Error(`Redirect failed: ${e.message}`);
           }
         }, 800);
-      });
+      } catch (err) {
+        errorDiv.style.display = 'block';
+        errorDiv.textContent = err.message;
+        btn.style.display = 'inline-block';
+        loader.style.display = 'none';
+        showStatus(err.message, true);
+      }
     }
     
-    // Attach click handler to button
+    // Handle retry functionality
+    retryBtn.addEventListener('click', () => {
+      retryBtn.style.display = 'none';
+      redirect();
+    });
+    
+    // Attach click handler to main button
     btn.addEventListener('click', redirect);
     
     // Auto-redirect if parameters are present
     window.onload = function() {
+      // Debug info
+      showDebug(`Parameters: id=${id}, row=${row}`);
+      
       // Show error if no valid parameters
-      if (!row && !id) {
+      if ((!id || id.trim() === "") && (!row || isNaN(parseInt(row, 10)))) {
         errorDiv.style.display = 'block';
       } else {
         // Auto-redirect after a short delay (gives users time to see the page)
         setTimeout(redirect, 1500);
-      }
-      
-      // Enable debug mode with URL parameter
-      if (params.get('debug') === 'true') {
-        showDebug(`Parameters: row=${row}, id=${id}`);
       }
     };
   </script>
